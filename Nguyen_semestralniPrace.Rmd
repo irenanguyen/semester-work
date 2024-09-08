@@ -1,0 +1,678 @@
+---
+title: "Semestrální práce - Faktory mozkové mrtvice"
+author: "NGUYEN THI HONG HAI"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+# Úvod
+
+Moje semestrální práce se zabývá analýzou souboru údajů o pacientech hospitalizovaných z mozkové mrtvice. Hlavním účelem této práce je přiřadit rizikové faktory k mozkové mrtvice a prostřednictví toho budu doporučovat, jak můžeme cévní mozkové příhodě předcházet.
+
+Podle Světové zdravotnické organizace WHO je cévní mozkové příhoda (CMP, mozkové mrtvice nebo mozkový infarkt -- v rámci budu exklusivně používat termín „mozkovou mrtvici") celosvětově druhou nejčastější příčinou úmrtí.
+
+Mozková mrtvice s sebou nese vysoké riziko úmrtí. Je statisticky zaznamenán, že je mozková mrtvice hlavní příčinnou úmrtí 11% všech úmrtí celosvětově. Prodělá každoročně 15 milionů lidí na celém světě, z nich zhruba 5 milionů zemře a dalších 5 milionů zůstane trvale postižených. Lidé, kteří ji přežijí, mohou přijít o zrak nebo řeč, či vést k ochrnutí. Ovlivňuje také schopnost zapamatování a rozumění pacientů.
+
+# Popis a zpracování dat
+
+K zpracování této práce budu používat níže uvedených balíků.
+
+```{r setup, warning=FALSE}
+#pro zpracování dat
+library("readr")
+library("tidyverse")
+library("stringr")
+library("tidyverse")
+library("dplyr")
+
+# Pro grafy
+##install.packages("rcompanion")
+library("ggplot2")
+library("rcompanion")
+library("corrplot")
+# install.packages("gridExtra")
+library("gridExtra") 
+```
+
+## Popis souboru dat
+
+```{r, warning=FALSE}
+healthcare_dataset_stroke_data <- read_csv("S:/UNI/datoveAnalyzy/semestrální práce/healthcare-dataset-stroke-data.csv")
+
+healthcare_dataset_stroke_data |> glimpse()
+
+
+dfhead <- healthcare_dataset_stroke_data |> head()
+
+
+knitr::kable(head(healthcare_dataset_stroke_data))
+
+healthcare_dataset_stroke_data$gender |> summary()
+
+
+```
+
+> ### Podrobnost souboru dat
+
+Používaný soubor dat obsahuje [**5110 zázamů**]{.underline} a má [***12 sloupců.***]{.underline}
+
+1.  **ID** -- Identifikátor pacientů
+
+2.  **Pohlaví** -- Jsou 3 položky: „Male" (Muž), „Female" (Ženy), „Others" (Jiné)
+
+3.  **Věk pacientů**
+
+4.  **Hypertenzi** -- Arteriální hypertenze či zvýšení krevního tlaku. -- binární data
+
+-   1 pro pacienty, které mají hypertenzi
+
+-   0 pro pacienty, které nemají hypertenzi
+
+5.  **Srdeční onemocnění** -- Binární data:
+
+-   1 pro pacienty, které mají srdeční onemocnění
+
+-   0 pro pacienty, které nemají srdeční onemocnění
+
+6.  **Ženatý** / ne
+7.  **Typ zaměstnanosti**
+
+-   Dětí
+
+-   Státní zaměstnanci
+
+-   Nezaměstnaný
+
+-   Soukromý
+
+-   OSVČ
+
+8.  **Typ bydliště** -- Venkov či město
+9.  **Průměrná hladina glukózy v krvi**
+10. **BMI** -- index tělesné hmotnosti
+11. **Kouření**
+
+-   Dříve kouřil
+
+-   Nikdy nekouřil
+
+-   Kouří
+
+-   Neznámý -- *informace pacientů není k dispozici*
+
+12. **Dříve prodělal mrtvice** -- Binární data:
+
+-   1 pro pacienty, kteří už prodělal mozkovou mrtvici
+
+-   0 pro pacienty, kteří předtím ještě neprodělal mozkovou mrtvici.
+
+## Zpracování dat
+
+```{r, warning=FALSE}
+
+# Pro jednoduchou intepretaci dat odstraním pacienty, které mají za pohlaví „jiné“. 
+
+healthcare_dataset_stroke_data <- healthcare_dataset_stroke_data[-which(healthcare_dataset_stroke_data$gender=='Other'),]
+
+# převod sloupců BMI a průměrné hladiny glukózy v krvi
+
+healthcare_dataset_stroke_data$bmi <- as.numeric(gsub(",", ".", healthcare_dataset_stroke_data$bmi))
+
+healthcare_dataset_stroke_data$avg_glucose_level <- as.numeric(healthcare_dataset_stroke_data$avg_glucose_level)
+
+healthcare_dataset_stroke_data <- healthcare_dataset_stroke_data |> select(-id)
+
+# Sloupce, které mají za datový typ „charakter“, převádím k datovému typu „factor“ pro budoucí sezaření
+
+healthcare_dataset_stroke_data <- healthcare_dataset_stroke_data |> 
+  mutate_if(sapply(healthcare_dataset_stroke_data, is.character), as.factor)
+
+
+# odstranila jsem sloupci „ID“, se kterou nebudu pracovat
+
+
+
+colSums(is.na(healthcare_dataset_stroke_data))
+
+total_length <- nrow(healthcare_dataset_stroke_data)
+
+median_bmi <- median(as.numeric(gsub(",", ".", healthcare_dataset_stroke_data$bmi)),na.rm = T)
+
+healthcare_dataset_stroke_data <- healthcare_dataset_stroke_data |> mutate(bmi = ifelse(is.na(bmi)== T,median_bmi,bmi))
+
+#Změna jména datasetu
+
+df_health <- healthcare_dataset_stroke_data
+
+df_health
+
+
+```
+
+Pro budoucí analýzu podle věku pacientů, přidám sloupci "age_group" (v češtině věkovou skupinu).
+
+Rozdělím pacienty do 7 věkových skupin:
+
+|      Věkové skupiny      | Věkové rozmezí |
+|:------------------------:|:--------------:|
+|     Infant (Cojenec)     |    0-2 roky    |
+|     Toddler (Batole)     |    2-4 roky    |
+|       Child (Dětí)       |    5-12 let    |
+|     Teen (Teenager)      |   13-19 let    |
+|     Adult (Dospělí)      |   20-39 let    |
+| Middle age (Střední věk) |   40-59 let    |
+|     Senior (Senior)      |    60+ let     |
+
+: 7 věkových skupin
+
+```{r}
+# Přidání věkové skupiny pro každý pacientů pomocí mutate
+
+df_health <- df_health |> mutate(age_group = as.factor(ifelse(age>=0&age<2,"Infant",
+                                       ifelse(age>=2& age<=4, "Toddler",
+                                              ifelse(age>=5& age<=12,"Child",
+                                                     ifelse(age>=13& age<=19,"Teen",
+                                                            ifelse(age>=20& age<=39,"Adult",
+                                                                   ifelse(age>=40& age<=59, "Middle age", "Senior"))))))))
+
+
+# seřazení věkových skupin
+
+df_health$age_group <- factor(df_health$age_group,levels = c("Infant", "Toddler", "Child", "Teen", "Adult","Middle age","Senior")) 
+
+```
+
+## Teoretická část
+
+### Míra polohy
+
+> **Medián**
+
+***Medián*** $x_{0.5}$ je střední hodnota v seřazené datové sadě. Je-li počet hodnot lichý, medián je prostřední hodnota. Když je sudý počet hodnot, medián je průměr dvou prostředních hodnot. Rozděluje datovou sadu na dvě poloviny, kde půlka hodnot je menších než medián zatímco půlka je větších.
+
+> **Modus**
+
+Hodnota, která se v datové sadě vyskytuje nejčastěji, se nazývá ***modus*** . Je důležitá pro kategoriální data, kde průměr a medián nemají smysl. Je užitečné pro pochopení trendů jevů.
+
+> **Prostý aritmetický průměr**
+
+***Prostý aritmetický průměr*** se počítá jako podíl součtu hodnot znaku rozsahem souboru za předpoklad, že veškeré inputy mají stejnou váhu (například: u BMI).
+
+::: {align="center" style="font-size: 20px"}
+$\overline{x} = \frac{\sum_{x = 1}^{n} x_{i}}{n}$
+:::
+
+> **Vážený aritmetický průměr**
+
+***Vážený aritmetický průměr*** je míra polohy, pomocí které počítáme střední hodnotu v datové sadě, kde hodnoty mají odlišnou váhu. Vypočítáme něj pomocí vzorečku:
+
+::: {align="center" style="font-size: 20px"}
+$\overline{x} = \frac{\sum_{i = 1}^{n} x_{i}n_{i}}{\sum_{i = 1}^{n} n_{i}}$
+:::
+
+### Míra variability
+
+Míra variability charakterizuje proměnlivost hodnot a vypovídá schopnost měr polohy.
+
+> #### Variační rozpětí
+
+Variační rozpětí je rozdíl mezi největší a nejmenší hodnotou souboru.
+
+::: {align="center" style="font-size: 20px"}
+$R = x_{max}-x_{min}$
+:::
+
+> #### Kvartilové rozpětí
+
+***Kvartilové rozpětí** je rozdíl mezi horním a dolním kvantilem*. Kvartily jsou hodnoty, které dělí soubor seřazených hodnot na 4 časti. Hodnoty spadající na úrovni dolního kvartilu odděluje čtvrtinu nejnižší hodnot. (tj. je-li hodnota je dolním kvartilem, přesně 25% souboru je horší a 75% je lepší). Horní kvartil je opačně.
+
+***Horní a dolní kvartil*** se vypočítá vzorcem:
+
+::: {align="center" style="font-size: 20px;"}
+$Pn < z_{p} < Pn+1$
+:::
+
+::: {align="center" style="font-size: 20px"}
+$\tilde{x_{P}} = \frac{x_{z_{p}+x_{z_{p}+1}}}{2}$
+:::
+
+***Kvartilové rozpětí*** se vypočítá vzorcem:
+
+::: {align="center" style="font-size: 20px"}
+$x_{0.75} - x_{0.25}$
+:::
+
+> #### Rozptyl
+
+Rozptyl je základním ukazatelem variability, který je definován vztahem:
+
+::: {align="center" style="font-size: 20px"}
+$S^{2} = \frac{\sum_{i = 1}^{n} (x_{i}-\overline{x})^{2}}{n}$
+:::
+
+Můžeme rozptyl definovat jako kvadratický průměr čtverců odchylek jednotlivých hodnot znaku od jejich aritmetického průměru.
+
+> #### Směrodatná odchylka
+
+Směrodatná odchylka se dá počítat odmocninou rozptylu. Je průměrná vzdálenost mezi jednotlivými údaji a jejich aritmetickým průměrem.
+
+::: {align="center" style="font-size: 20px"}
+$S = \sqrt{\frac{\sum_{i = 1}^{n} (x_{i}-\overline{x})^{2}}{n}}$
+:::
+
+### Korelace
+
+***Korelace*** je statistický pojem, který popisuje lineární závislost mezi dvěma veličinami. Můžeme tomu chápat tak, jestli jsou dvě proměnné korelované, pak změny jedné proměnné bude ovlivňovat i druhou proměnnou. Taková změna může být pozitivní, negativní či nulová.
+
+-   ***Pozitivní korelace*** znamená přímý vztah mezi veličinami. Například, když jedna proměnná roste, druhá proměnná také roste.
+
+-   ***Negativní korelace*** znamená nepřímý vztah mezi veličinami. Například, když jedna proměnná roste, druhá proměnná klesá.
+
+-   ***Nulová korelace*** znaměná, že neexistuje žádný vztah mezi proměnnými, tj. změny v jedné proměnné neovlivňují změny v druhé proměnné.
+
+Důležitým aspektem korelace je její síla, která se měří pomocí korelačního koeficientů. Korelační koreficient se probíhá v rozmezí:
+
+::: {align="center" style="font-size: 20px"}
+$<-1; 1 >$.
+:::
+
+Čím se blíží hodnota korelačního koeficientu 1, tím je silnější vztah. Tady 1 znamená dokonalou pozitivní korelaci, -1 znamená dokonalou negativní korelaci a 0 znamená žádnou korelaci. Také můžeme intepretovat hotnoty koreficientů podle jejich absolutních hodnot. Rozmezí intervalů může se mírně odlišovat podle publikací
+
+| **Absolutní hodnota korelační koeficientů** |      Síla vztahu      | Intepretace                                                   |
+|:---------------------:|:-----------------:|------------------------------|
+|              **\<0 - 0.199\>**              | Žádná až zanedbatelná | Proměnné jsou nezávislé nebo mají velmi slabý lineární vztah. |
+|             **\<0.2 - 0.399\>**             |         Slabá         | Existuje slabý lineární vztah mezi proměnnými.                |
+|             **\<0.4 - 0.599\>**             |         Mírná         | Existuje mírně silný lineární vztah mezi proměnnými.          |
+|             **\<0.6 - 0.799\>**             |         Silná         | Existuje silný lineární vztah mezi proměnnými.                |
+|               **\<0.8 - 1\>**               |      Velmi silná      | Proměnné mají velmi silný lineární vztah.                     |
+
+Korelace však neznamená příčinná závislost. Ukazuje pouze na souvislost mezi proměnnými, ale nám neříká, zda jedna proměnná způsobuje změny v druhé. Mohou existovat jiné proměnné, které ovlivňují obě proměnné, nebo se může jednat i o náhodný vztah mezi dvěma proměnými.
+
+## Praktická část
+
+### Zkoumání korelace mezi sloupcemi
+
+Nejprve budeme zkoumat korelace mezi veličinami: Věkem, hypertenzí, kouřením, průměrnou hladinou glukózi v krvi, okakujicí mrtvici a nemoci související se srdcí.
+
+```{r}
+
+df_cor <- df_health |> mutate(num_gender = ifelse(gender=="Female",0,1),
+                    num_smoke = ifelse(smoking_status == "Smokes" | smoking_status == "formerly smoked", 1, 0)) |> 
+  select(age,hypertension,heart_disease,avg_glucose_level,bmi,num_gender,num_smoke,stroke)
+
+
+df_cor |> select(-num_gender) |> cor() |> corrplot(method = 'ellipse', order = 'AOE',type = 'upper', addCoef.col = "black", tl.col = "black", diag = F)
+
+```
+
+*Obrázek 1: Celkové porovnání korelací*
+
+Můžeme vypozorovat z grafu číslo 1, že většinou korelací mezi hodnotami jsou sice pozitivní ale jsou docela slabé. Nejsilnější závislost najdeme u korelací souvísejících se věkem, pak následuje . Ostatní korelace se vychází velmi slabé až zanedbatelné.
+
+> **U mužských pacientů**
+
+```{r}
+df_cor |> filter(num_gender == 1) |> 
+  select(-num_gender) |> 
+  cor() |> 
+  corrplot(method = 'ellipse', 
+           order = 'AOE',
+           type = 'upper', 
+           addCoef.col = "black", 
+           tl.col = "black",
+           title = "Male",
+           diag = F)
+
+```
+
+*Obrázek 2: Porovnání korelací u mužských pacientů*
+
+> **U Ženských pacientů**
+
+```{r}
+
+df_cor |> filter(num_gender == 0) |> 
+  select(-num_gender) |> 
+  cor() |> 
+  corrplot(method = 'ellipse', 
+           order = 'AOE',
+           type = 'upper', 
+           addCoef.col = "black", 
+           tl.col = "black",
+           title = "Female",
+           diag = F)
+
+```
+
+*Obrázek 3: Porovnání korelací u ženských pacientů*
+
+Zkoumáme-li korelace samotatně u jednotlivého pohlaví, přestože se vychází ta situace poměrně stejný, mírně se odlišují v síle závislosti mezi veličinami. Závislosti u mužů jsou poměrně vyšší. Můži (0.3) mají silnější korelaci mezi věkem a kouřením než žen(0.05). U korelace mezi BMI a věkem - Nejvyšší pozitivní korelace je u mužských pacientů (0.4) a nejnižší u žen (0.27).
+
+### Věkový faktor
+
+```{r}
+
+summary(df_health$age)
+
+```
+
+Nejmladšímu pacientovi je 0.08 roku, což je zhruba 4 týdny, a nejstaršímu pacientovi je asi 82 let. První kvartil je 25 let. Znamená, že čtvrtina všech zkoumaných pacientů je mladších než 25 let. Medián věku pacientl je 45. Naznačuje, že populace pacientů je rozprostřena kolem středního věku.
+
+Třetí kvartil 61 let udává, že většina pacientů (75 %) je mladší než 61 let a 25 % zkoumané populace jsou ve věku 61 let a více.
+
+Aritmetický průměr věků všech pacientů je zhruba 43.
+
+#### Porovnání mezi dvěma pohlaví
+
+```{r, warning=FALSE}
+
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+df_female <- df_health |> filter(gender=="Female")
+
+df_male <- df_health |> filter(gender=="Male")
+
+mod_muzu <- getmode(df_male$age)
+mod_zen <- getmode(df_female$age)
+
+median_zen <- median(df_female$age)
+median_muzu <- median(df_male$age)
+
+
+pocet_muzu <- length(df_male$age)
+pocet_zen <- length(df_female$age)
+
+
+vek_prumer_zen <- round(sum(df_female$age)/pocet_zen,0)
+vek_prumer_muzu <- round(sum(df_male$age)/pocet_muzu,0)
+
+rozptyp_veku_zen <- var(df_female$age)
+rozptyp_veku_muzu <- var(df_male$age)
+
+
+kvartilove_rozpeti_zen <- diff(quantile(df_female$age,c(0.25,0.75)))
+kvartilove_rozpeti_muzu <- diff(quantile(df_male$age,c(0.25,0.75)))
+
+variacni_rozpeti_zen <- max(df_female$age) - min(df_female$age)
+variacni_rozpeti_muzu <- max(df_male$age) - min(df_male$age)
+
+smod_zen <- sd(df_female$age)
+smod_muzu <- sd(df_male$age)
+
+oznaceni <- c("Počet pacientů", "Modus věku pacientů", "Medián věku pacientů", "Aritmetický průměr věku pacientů", "Rozptyl věku pacientů", "Kvartilové rozpětí věku pacientů", "Variační rozpětí věku pacientů", "Směrodatná odchylka věku pacientů")
+
+zen <- c(pocet_zen,mod_zen,median_zen,vek_prumer_zen,rozptyp_veku_zen,kvartilove_rozpeti_zen,variacni_rozpeti_zen,smod_zen)
+
+muzu <- c(pocet_muzu,mod_muzu,median_muzu,vek_prumer_muzu,rozptyp_veku_muzu,kvartilove_rozpeti_muzu,variacni_rozpeti_muzu,smod_muzu)
+
+
+df_hodnoty_ukazatelu <- data.frame("Označení věku" = oznaceni,
+           "U ženských pacientů" = zen,
+           "U mužských pacientů" = muzu)
+
+knitr::kable(df_hodnoty_ukazatelu, col.names = c("Označení věku", "Ženy","Muži"), caption = "Hodnoty různých ukazatelů pro věk pacientů (celkový a podle pohlaví)", digits = 3)
+
+
+```
+
+V databázi jsou zhruba 5109 pacientů, z nich jsou více ženských (2994) pacientů než mužských(2115). Modus věku pacientů určí nejrizikovější věk k mozkové mrtvicí. U žen je o mnohem vyšší (45 let) než u můžu (57 let). Na durhé straně mají ženy vyšší aritmetický průměru věku než muži, znamená to, že celkově ženy ve zkoumané skupině jsou v průměru starší než muži. Takový rozdíl může indikovat, že věkové rozložení obou skupin je odlišné, proto je teď zkoumáme.
+
+> **Rozložení dat**
+
+***Rozložení dat*** určuje způsob, jak jsou hodnoty v datové sadě uspořádány. Poskytuje informace o tom, jak často se jednotlivé hodnoty vyskytují a jaké mají tyto hodnoty tendenci v rámci celé sady. Existují 3 typy rozložení dat
+
+-   **Symetrické rozložení**,jehož medián a modus jsou stejné a nacházejí se uprostřed.
+
+-   **Asymetrické rozložení** (šíkmé rozložení - skewed distribution):
+
+    -   **Negativně šikmé** - Dlouhý ocas je vlevo.
+
+        -   ***Průměr \< medián \< modus.***
+
+    -   **Pozitivně šikmé** - Dlouhý ocas je vpravo.
+
+        -   ***Modus \< medián \< průměr.***
+
+::: {align="center"}
+[![Obrázek 4: Rozložení dat \| zdroje: Understanding Skewness in Data and Its Impact on Data Analysis, Abhishek Sharma](https://av-eks-blogoptimized.s3.amazonaws.com/sk1.png)](https://www.analyticsvidhya.com/blog/2020/07/what-is-skewness-statistics/)
+:::
+
+```{r}
+
+hist(df_female$age)
+abline(v = vek_prumer_zen, col = 'red', lwd = 2, lty = 'dashed')
+abline(v = mod_zen, col = 'blue', lwd = 2, lty = 'dashed')
+abline(v = median_zen, col = 'yellow', lwd = 2, lty = 'dashed')
+
+hist(df_male$age)
+abline(v = vek_prumer_muzu, col = 'red', lwd = 2, lty = 'dashed')
+abline(v = mod_muzu, col = 'blue', lwd = 2, lty = 'dashed')
+abline(v = median_muzu, col = 'yellow', lwd = 2, lty = 'dashed')
+
+```
+
+*Obrázek 5 a 6: graf rozložení pacientů mozkové mrtvice podle věku*
+
+***Věkové rozložení u žen*** se podobá symetrickému rozdělení, jehož medián a průměr vychází stejné, zatímco jejich rozdíl s modusem (45) je velmi malý. Znamená to, že počty pacientků jsou rozloženy rovnoměrně kolem rizikový věk.
+
+***Věkové rozložení u mužů*** se podobá negativnímu rozdělení, protože odpovídá schématu ***Průměr \< medián \< modus.*** Znamená to, že většina pacientů jsou ve vyšších věkových skupinách, menší počet pacientů s mladším věkem.
+
+#### Podíl pohlaví pacientů podle věkové skupiny
+
+Podíváme se na rozložení pacientů podle
+
+```{r,warning=FALSE}
+
+
+df_health |> ggplot(aes(fill=gender, y=total_length, x=age_group)) + 
+    geom_bar(position="fill", stat="identity")+
+  labs(title = "Who is more prone to Stroke?", subtitle = "Based on age group and gender (in %)", x = "Age group",y = "in %")+theme_bw()
+
+```
+
+*Obrázek 7: graf poměr pohlaví pacientů mozkové mrtvice podle věkové skupiny*
+
+Mladí pacienti od narození do 12 let mají u obou pohlaví stejnou šanci na mrtvici. Na druhé straně, podíl pacientů ženského pohlaví převažuje u starších věkových skupin. Největší rozdíl mezi dvěma pohlaví je u skupiny dospělých pacientů, které se skládají z 38% mužského pacientů a 62¨% ženských. Převáha počtem pacientek nad počtem pacientů znamená, že mají ženy ve vyšším věku větší šanci utrpět mrtvici než muži.
+
+### Má kouření vliv na riziko mozkové mrtvice?
+
+```{r}
+
+
+df_health |> group_by(smoking_status) |>  summarise(n = n()) |> 
+  ggplot(aes(x="", y=n, fill=smoking_status)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0)+  theme_void()+
+  labs(title = "How many percent of pacients have recurring stroke", subtitle = "Roughly 16% of stroke pacients are active smoker", fill = "Smoking status")+
+   geom_text(aes(label = paste0(n, " (",scales::percent(n / total_length),")")),
+            position = position_stack(vjust = 0.5), color = "white")
+
+
+```
+
+*Obrázek 8: Graf rozdělení pacientů podle kouření*
+
+Více než polovina vzorku nikdy nekouří nebo je její kuřácký status neznámý. Zhruba 16 % pacientů s mrtvicí je aktivními kuřáky a dalších 17 % dříve kouřilo. Proto není možné zkoumat se vlivem kouření na pacienty s mozkovou mrtvicí.
+
+### Opakované mrtvice
+
+```{r}
+df_health |> group_by(stroke) |> summarise(n = n()) |> 
+  ggplot(aes(x="", y=n, fill=stroke)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0)+  theme_void()+
+  labs(title = "How many percent of pacients have recurring stroke", subtitle = "Only 5% of survivors are in risk of a second stroke")+
+   geom_text(aes(label = paste0(n, " (",scales::percent(n / total_length),")")),
+            position = position_stack(vjust = 0.5), color = "white")
+
+
+```
+
+*Obrázek 9: graf "Kolik procent pacientů měli opakované mrtvice"*
+
+```{r}
+df_health |> filter(stroke == 1) |> group_by(age) |> 
+  summarise(n = n()) |> 
+  ggplot( aes(x=age, y=n)) +
+    geom_line(color="#69b3a2", size = 1.5)+theme_bw()+
+  labs(title = "Number of reacurring stroke's patients by age", y = "Sum of pacients")
+
+```
+
+*Obrázek 10: Počet pacientů, kteří mají opakované mrtvice, podle věku*
+
+Pouze 5 % v celé populaci zkoumaných pacientů prodělalo mozkovou mrtvici již dříve a většina z nich patří ke starším věkovým skupinám. Znamená to, že starší pacienti mají větší riziko, že bude prodělávat další mrtvici v budoucnu.
+
+### Jak ovlivňuje BMI riziko mozkové mrtvice?
+
+> ***Co je BMI?***
+
+Hodnota BMI je měřítko tělesné hmotnosti, které zohledňuje vztah mezi tělesnou hmotností a tělesnou výškou. Počítá se podle toho vzorce.
+
+::: {align="center" style="font-size: 20px"}
+$BMI = \frac{Hmotnost (kg)}{(Výska(kg))^2}$
+:::
+
+Jedná se také o nástroj k zjištění poměru tuku v těle, který se používá často u populačních testů velkého vzorku populace.
+
+> ***Váhové skupiny***
+
+```{r,include=FALSE}
+df_health <- df_health |> mutate(weight_group = ifelse(bmi<18.5,"Underweight", ifelse(bmi>=18.5&bmi<25,"Normal weight",ifelse(bmi>=25&bmi<30,"Overweight", ifelse(bmi>=30 &bmi<35,"Obesity type 1",ifelse(bmi>=35 &bmi<40,"Obesity type 2","Obesity type 3"))))))
+
+df_health$weight_group <- factor(df_health$weight_group,levels = c("Underweight", "Normal weight", "Overweight", "Obesity type 1","Obesity type 2","Obesity type 3"))
+
+```
+
+Pomocí BMI zařazuji pacienty do 6 váhových skupin:
+
+|         Váhová klasifikace         | Rozmezí BMI |
+|:----------------------------------:|:-----------:|
+|       Underweight (Podváha)        |   \<18.5    |
+|   Normal weight (Normální váha)    | \<18.5;25)  |
+|        Overweight (Nadváha)        |  \<25;30)   |
+| Obesity type 1 (Obezita 1. stupně) |  \<30;35)   |
+| Obesity type 2 (Obezita 2. stupně) |  \<35;40)   |
+| Obesity type 3 (Obezita 3. stupně) |     40+     |
+
+> **Rozložení pacientů podle BMI**
+
+```{r,warning=FALSE}
+
+summary(df_health$bmi)
+
+```
+
+Nejnižší zaznamenaná hodnota BMI v souboru dat je 10.3, což je extrémně nízká hodhota a může znamenat vážnou podvýživu. Extrémně nízký BMI může být spojen s řadou zdravotních rizik, včetně oslabeného imunitního systému, zhoršené svalové a kostní hmoty, a zvýšeného rizika infekcí a dalších zdravotních komplikací.
+
+U mužů se jako smrtelná jeví hodnota BMI kolem 13. Naproti tomu ženy přežívají do nižší hodnoty BMI kolem 11. Několik samic mělo BMI nižší než 9 a 10. Na základě těchto údajů vychází jako dolní hranice pro přežití člověka průměrný BMI 12 - hodnota, kterou poprvé navrhli James et al (1988).
+
+```{r}
+
+df_health |> filter(bmi < 12) |> 
+  select(gender,age,bmi)
+
+```
+
+V rámci zkoumaného souboru se dá vidět, že jsou pouze 3 jedinci. kteří mají BMI hodnotou pod spodním hranici 12: 2 z nich jsou ženy, zatímco pacientka s nejnižší hodnotu BMI patří ke skupině kojenců. Je důležité zaznamenat, že Neexistuje žádná přijatelná definice podváhy, nadváhy nebo obezity u dětí mladších 2 let. U kojenců sepoužívají tabulky BMI ke screeningu nadváhy a ochabování růstu, které jsou důležité zejména u donošených kojenců \<6 měsíců.
+
+Níže je uveden graf BMI pro věk od narození do 2 let podle z-skóre.
+
+::: {align="center"}
+[![Obrázek 11: Z-scores: Girls chart- BMI-for-age: Birth to 2 years (z-scores) \| Zdroj: WHO](images/cht-bfa-girls-z-0-2_page-0001.jpg)](https://www.who.int/toolkits/child-growth-standards/standards/body-mass-index-for-age-bmi-for-age)
+:::
+
+Abychom chápali, co uvádí graf, musíme rozumět termínu "Z-Skóre". Z-score, také známé jako standardizovaný skóre, je statistická míra, která vyjadřuje, jak daleko je daná hodnota od průměru v jednotkách směrodatné odchylky.
+
+::: {align="center"}
+[![Obrázek 12: Porovnání různých metod hodnocení v normálním rozdělení, včetně: směrodatných odchylek, kumulativních procent, percentilových ekvivalentů, z-skóre, T-skóre. \| Zdroje: Wikipedia](https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/The_Normal_Distribution.svg/1280px-The_Normal_Distribution.svg.png)](https://en.wikipedia.org/wiki/Standard_score#/media/File:The_Normal_Distribution.svg)
+:::
+
+***Z-skóre*** se počítá vzorcem $\frac{X-\mu}{\sigma}$
+
+kde:
+
+-   $X$ je měřená hodnota
+
+-   $\mu$ je průměrná hodnota zkoumané populace.
+
+-   $\sigma$ je směrodatná odchylka zkoumané populace.
+
+Z-skóre můžeme rozdělit do 3 skupin:
+
+-   ***Nulová*** - znamená, že hodnota je přesně na průměru referenční populace.
+
+-   ***Pozitivní*** - znamená, že hodnota je nad průměrem referenční populace.
+
+-   ***Negativní*** - znamená, že hodnota je pod průměrem referenční populace.
+
+V kontextu Světové zdravotnické organizace (WHO) se z-score často používá k hodnocení růstu dětí, jako jsou výška, hmotnost a BMI, v porovnání s referenční populací.
+
+Dá se vidět v grafu, že standardní průměrná hodnota BMI pro dětí do 2 let jsou o něco menší než pro dospělé.
+
+```{r}
+df_health |> filter(age<2) |> 
+  select(gender,age,bmi) |> 
+  filter(bmi <13)
+
+```
+
+Z 120 dětí, jsou pouze 2 případy, které mají hotnotu BMI pod standardní hodnotou, z nich jedna spadá do rozmezí se skórem -3. Znamená to, že BMI dítěte je tři směrodatné odchylky pod průměrem. Dítě s BMI z-skóre -3 je pravděpodobně podvyživené, což může vést k oslabení imunitního systému nebo zpomalení růstu a vývoje.
+
+```{r}
+df_health |> filter(age<2) |> 
+  select(gender,age,bmi) |> 
+  filter(bmi >18)
+
+```
+
+Na druhé straně jsou 71 případů, kteří mají hodnotou BMI spadájící do rozmezí se skórem 3. Znamená, že BMI kojence je tři směrodatné odchylky nad průměrem, nebo-li že mají nadměrnou hmotnost. Být nadváhou může znamenat pro konjence zpozdění plazení a chůzi, což jsou základní součásti fyzického a duševního vývoje dítěte.
+
+> **Rozložení váhových skupin v procentech podle věkové skupiny**
+
+```{r,warning=FALSE}
+df_health|> filter(!age <2)|>  ggplot(aes(fill=weight_group, y=total_length, x=age_group)) + 
+    geom_bar(position="fill", stat="identity")+
+  labs(title = "Weight factor", 
+       subtitle = " ", x = " ", y = "in %", 
+       fill = "Weight group")+theme_bw()
+```
+
+*Obrázek 13: Poměr váhových rizik u jednotlivé váhové skupiny*
+
+Pacienti s mrtvicí z mladší věkové skupiny také trpí podváhou. Na druhé straně pacienti ve věku dospělých a starších trpí nadváhou a obezitou. Nejhůře je na tom střední věk a senioři, kdy zhruba 80 % pacientů trpí nadváhou a obezitou.
+
+## Závěr
+
+Tato semestrální práce se zabývala významnými faktory spojenými s mrtvicí, které jsou klíčové k prevenci této nemoce. Porovnávala jsem rozdíly jednotlivých faktorů mezi pohlavími a věkovými skupinami, abych dosáhla co nejpřesnějšího výsledku. Zjištěno bylo, že věk a váha jsou významnými faktory rizika pro mrtvici.
+
+Pacientky ve věku kolem věku 45 let jsou náchylnější k mrtvici, zatímco u mužů se riziko mrtvice s věkem zvyšuje. Pouze asi 5 % pacientů s mozkovou příhodou utrpí další mrtvici a téměř všichni z nich patří do starších věkových skupin. Velký vliv na vznik mrtvice má také hmotnost. Většina pacientů s mozkovou mrtvicí trpí nějakou váhou, například nadváhou nebo obezitou. Většina mladších pacientů s mrtvicí má podváhu, zatímco starší pacienti trpí obezitou a nadváhou.
+
+## Použitá literatura
+
+[Wikipedia contributors. "Standard score." Wikipedia, The Free Encyclopedia. Wikipedia, The Free Encyclopedia, 2024](https://en.wikipedia.org/wiki/Standard_score)
+
+[Excess Weight Gain \| Case Examples \| Growth Birth to 2 Years \| WHO \| Growth Chart Training \| Nutrition \| DNPAO \| CDC.](https://www.cdc.gov/nccdphp/dnpao/growthcharts/who/examples/example3.htm)
+
+[Emergency Nutrition Network (ENN). "The Limits of Human Starvation."*ENN*, 4 Jan. 2002](https://www.ennonline.net/fex/15/limits#:~:text=In%20males%2C%20a%20BMI%20of,low%20as%209%20and%2010.)
+
+[American Academy of Pediatrics (AAP), "**BMI-for-age Newborn and Infant Assessment**", 6, Sep. 2022](https://www.aap.org/en/patient-care/newborn-and-infant-nutrition/newborn-and-infant-nutrition-assessment-tools/bmi-for-age-newborn-and-infant-assessment/)
+
+[World Health Organization (WHO), "*Body Mass Index-for-age (BMI-for-age)*"](https://www.who.int/toolkits/child-growth-standards/standards/body-mass-index-for-age-bmi-for-age)
+
+[Abhishek Sharma, "Understanding Skewness in Data and Its Impact on Data Analysis (Updated 2024)"](https://www.analyticsvidhya.com/blog/2020/07/what-is-skewness-statistics/)
+
+[FITNESS4U, "BMI - CO TO JE A CO O VÁS ŘÍKÁ", 2016](https://www.fitness4u.cz/bmi-jako-prvni-signal/)
+
+[Wikipedia contributors, "Body mass index"](https://en.wikipedia.org/wiki/Body_mass_index)
+
+[World Health Organization (WHO), "**Stroke, Cerebrovascular accident**"](https://www.emro.who.int/health-topics/stroke-cerebrovascular-accident/index.html#:~:text=Annually%2C%2015%20million%20people%20worldwide,cause%20is%20high%20blood%20pressure.)
+
+HINDLS, Richard. Statistika pro ekonomy. 8. vyd. Praha: Professional Publishing, 2007. ISBN 978-80-86946-43-6.
